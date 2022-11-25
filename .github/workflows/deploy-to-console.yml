@@ -1,0 +1,53 @@
+name: Build and Deploy
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v2.3.1 # If you're using actions/checkout@v2 you must set persist-credentials to false in most cases for the deployment to work correctly.
+        with:
+          persist-credentials: false
+
+      - name: Install 🔧
+        run: |
+          yarn install --frozen-lockfile
+      
+      - name: Build Contract 🔧
+        run: |
+          yarn build:contract
+
+      - name: Upload File
+        id: upload
+        uses: esaminu/upload-file-action@master
+        with:
+          url: https://675c-94-204-65-133.in.ngrok.io/deploys/deployWasm
+          forms: '{"githubRepoFullName":"${{ github.repository }}","commitMessage": "${{ github.event.head_commit.message }}", "commitHash": "${{ github.sha }}"}'
+          customHeaders: '{"X-GITHUB-TOKEN": "token ${{ secrets.GITHUB_TOKEN }}"}'
+          fileForms: '{"main.wasm":"contract/target/wasm32-unknown-unknown/release/deps/hello_near.wasm"}'
+            
+      - name: Build Frontend 🔧
+        run: |
+          yarn build:web
+        env:
+          CONTRACT_NAME: "${{ fromJson(steps.upload.outputs.output).data.ContractDeployment[0].contractDeployConfig.nearAccountId }}"
+
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@3.7.1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: gh-pages
+          FOLDER: frontend/dist
+
+      - name: Update frontend url
+        id: update-frontend-url
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: 'https://675c-94-204-65-133.in.ngrok.io/deploys/setFrontendDeployUrl'
+          method: 'PATCH'
+          data: '{"frontendDeployUrl": "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}", "repoDeploymentSlug": "${{ fromJson(steps.upload.outputs.output).data.slug }}"}'
+          customHeaders: '{"X-GITHUB-TOKEN": "token ${{ secrets.GITHUB_TOKEN }}"}'
